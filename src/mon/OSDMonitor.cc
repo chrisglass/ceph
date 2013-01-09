@@ -461,12 +461,42 @@ void OSDMonitor::encode_pending(bufferlist &bl)
 
 void OSDMonitor::share_map_with_random_osd()
 {
-  // tell any osd
-  MonSession *s = mon->session_map.get_random_osd_session();
-  if (s) {
-    dout(10) << "committed, telling random " << s->inst << " all about it" << dendl;
-    MOSDMap *m = build_incremental(osdmap.get_epoch() - 1, osdmap.get_epoch());  // whatev, they'll request more if they need it
-    mon->messenger->send_message(m, s->inst);
+  if (osdmap.get_num_up_osds() == 0) {
+    dout(10) << __func__ << " no up osds, don't share with anyone" << dendl;
+    return;
+  }
+
+  entity_inst_t inst;
+  bool found = false;
+
+  // we will try this much times to share the osdmap with an up monitor with
+  // whom we have an established session, before we resort to just share it
+  // with *any* up osd.
+  for (int retries = 5; retries > 0; --retries) {
+    // tell any osd
+    MonSession *s = mon->session_map.get_random_osd_session();
+    if (s && osdmap.is_up(s->inst.name.num())) {
+      inst = s->inst;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    int id = osdmap.get_any_up_osd();
+    if (id < 0) {
+      dout(10) << __func__ << " unable to obtain *any* up osd from map" << dendl;
+      return;
+    }
+    inst = osdmap.get_inst(id);
+    found = true;
+  }
+
+  if (found) {
+    dout(10) << "committed, telling random " << inst << " all about it" << dendl;
+    // whatev, they'll request more if they need it
+    MOSDMap *m = build_incremental(osdmap.get_epoch() - 1, osdmap.get_epoch());
+    mon->messenger->send_message(m, inst);
   }
 }
 
