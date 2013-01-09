@@ -654,6 +654,10 @@ void Monitor::bootstrap()
 
   unregister_cluster_logger();
   cancel_probe_timeout();
+  // we will call it on reset() as well, but we keep it there for those
+  // cases that are not covered by this function, and we should really
+  // cleanup the timecheck mechanism before we change the monitor's state.
+  timecheck_cleanup();
 
   // note my rank
   int newrank = monmap->get_rank(messenger->get_myaddr());
@@ -736,6 +740,9 @@ void Monitor::_add_bootstrap_peer_hint(string cmd, string args, ostream& ss)
 void Monitor::reset()
 {
   dout(10) << "reset" << dendl;
+
+  timecheck_cleanup();
+
   leader_since = utime_t();
   if (!quorum.empty()) {
     exited_quorum = ceph_clock_now(g_ceph_context);
@@ -750,8 +757,6 @@ void Monitor::reset()
     (*p)->restart();
   for (vector<PaxosService*>::iterator p = paxos_service.begin(); p != paxos_service.end(); p++)
     (*p)->restart();
-
-  timecheck_cleanup();
 }
 
 void Monitor::cancel_probe_timeout()
@@ -984,6 +989,7 @@ void Monitor::slurp()
   dout(10) << "slurp " << slurp_source << " " << slurp_versions << dendl;
 
   reset_probe_timeout();
+  timecheck_cleanup();
 
   state = STATE_SLURPING;
 
@@ -1131,6 +1137,7 @@ void Monitor::start_election()
   dout(10) << "start_election" << dendl;
 
   cancel_probe_timeout();
+  timecheck_cleanup();
 
   // call a new election
   state = STATE_ELECTING;
